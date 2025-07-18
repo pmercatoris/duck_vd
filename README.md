@@ -1,14 +1,14 @@
 # duck_vd
 
-A simple CLI tool to query local or remote data files (e.g., Parquet, CSV) with DuckDB and interactively view the results in VisiData.
+A simple CLI tool to query local or remote data files (e.g., Parquet, CSV, JSON) with **Apache DataFusion** and interactively view the results in VisiData.
 
 ## Features
 
-- **Query Anything:** Run SQL queries on local files or remote objects in cloud storage.
-- **Intelligent Caching:** Automatically caches query results to `~/.cache/duck_vd/`, so subsequent identical queries are instantaneous.
-- **Broad Support:** Natively handles local files, HTTPS URLs, and Google Cloud Storage (`gs://`) buckets.
+- **Powerful Query Engine:** Uses Apache DataFusion to run SQL queries on local files or remote objects in cloud storage.
+- **Native Cloud Support:** Natively handles Google Cloud Storage (`gs://`) buckets with automatic `gcloud` authentication.
+- **Intelligent Caching:** Automatically caches query results to `~/.cache/duck_vd/`, so subsequent identical queries on the same data are instantaneous.
+- **Flexible Data Sources:** Query single files or entire folders of data.
 - **Seamless Viewing:** Opens query results directly in VisiData, preserving data types by using the Parquet format.
-- **Glob Support:** Query multiple files at once using glob patterns (e.g., `gs://my-bucket/data/*.parquet`).
 
 ## Prerequisites
 
@@ -67,45 +67,51 @@ You are now ready to proceed with the installation of `duck_vd`.
 
 ## Usage
 
-The tool accepts a single argument: a path to a file, a URL, or a full SQL query as a string.
+The tool is invoked by providing a `PATH` to a data source, along with options to specify a query and the data format.
+
+```bash
+duck_vd [OPTIONS] PATH
+```
+
+### Arguments & Options
+
+-   `PATH`: (Required) The path to your data source. Can be a local file, a GCS path (`gs://...`), or a folder.
+-   `-q`, `--query`: The SQL query to execute. Use the special name `table` to refer to the data source. Defaults to `"SELECT * FROM table"`.
+-   `-f`, `--file-format`: The format of the data (`parquet`, `csv`, `json`). **Required** when `PATH` is a folder.
+-   `--no-cache`: Bypass the cache for a fresh query result.
+-   `--clear-cache`: Clear the entire query result cache and exit.
 
 ### Examples
 
-**1. Query a local CSV file:**
+**1. View a local CSV file (default query):**
 ```bash
-duck_vd data/my_file.csv
+duck_vd local_data/my_file.csv
 ```
 
-**2. Query a remote Parquet file (the result will be cached):**
+**2. Query a folder of Parquet files on GCS:**
 ```bash
-duck_vd 'https://duckdb.org/data/holdings.parquet'
+duck_vd gs://my-bucket/data/ --file-format parquet
 ```
 
-**3. Run a complex query on GCS (the result will be cached):**
+**3. Run a custom aggregate query on a folder of JSON files:**
 ```bash
-duck_vd "SELECT country, COUNT(*) AS num_records FROM 'gs://my-bucket/data/*.parquet' GROUP BY country ORDER BY num_records DESC;"
+duck_vd gs://my-bucket/logs/ --file-format json --query "SELECT level, COUNT(*) FROM table GROUP BY 1"
 ```
 
 ### Cache Management
 
 **Force a refresh (bypass the cache):**
-Use the `--no-cache` flag to re-run a query without reading from the cache.
 ```bash
-duck_vd --no-cache 'gs://my-gcs-bucket/path/to/file.parquet'
+duck_vd --no-cache 'gs://my-gcs-bucket/path/to/data/' --file-format parquet
 ```
 
 **Clear the entire cache:**
-This will delete all stored query results.
 ```bash
 duck_vd --clear-cache
 ```
 
 ## How It Works
 
-`duck_vd` intelligently selects the right backend for your data source:
+`duck_vd` uses Apache DataFusion to register your data source (whether local or on GCS) as a table named `table`. It then executes your SQL query against this table. DataFusion's native `object_store` support handles GCS authentication and performs optimized reads (predicate/projection pushdown) to only download the data it needs.
 
--   **`gs://` URIs:** It uses the `gcsfs` library to handle authentication, automatically picking up your default `gcloud` credentials.
--   **`https://`, `s3://`, etc.:** It uses DuckDB's powerful built-in `httpfs` extension for optimized access.
--   **Local Files:** It reads directly from your local filesystem.
-
-For any query, it generates a unique hash of the SQL command. If a file with this hash exists in `~/.cache/duck_vd/`, it is opened instantly. Otherwise, the query is executed, and the result is saved to the cache for future use.
+For caching, it generates a unique hash from the combination of the data path and the SQL query. If a file with this hash exists in `~/.cache/duck_vd/`, it is opened instantly. Otherwise, the query is executed, and the result is saved to the cache for future use.

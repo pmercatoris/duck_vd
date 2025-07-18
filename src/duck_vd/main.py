@@ -5,87 +5,107 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import click
-import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
-
-try:
-    from gcsfs import GCSFileSystem
-    gcsfs_available = True
-except ImportError:
-    gcsfs_available = False
+from datafusion import SessionContext
+from datafusion.object_store import GoogleCloud
 
 CACHE_DIR = Path.home() / ".cache" / "duck_vd"
 
-class DuckVdRunner:
-    """Encapsulates the logic for running a duck_vd query."""
-    query_or_path: str
+
+def get_bucket_name(gcs_path: str) -> str:
+    """Extracts the bucket name from a gs:// path."""
+    match = re.match(r"gs://([^/]+)", gcs_path)
+    if not match:
+        raise ValueError(f"Invalid GCS path: {gcs_path}")
+    return match.group(1)
+
+
+class DataFusionRunner:
+    """Encapsulates the logic for running a DataFusion query."""
+
+    path: str
+    query: str
+    file_format: Optional[str]
     no_cache: bool
-    final_query: str
     cache_file_path: Path
 
-    def __init__(self, query_or_path: str, no_cache: bool):
-        self.query_or_path = query_or_path
+    def __init__(
+        self, path: str, query: str, file_format: Optional[str], no_cache: bool
+    ):
+        self.path = path
+        self.query = query
+        self.file_format = file_format
         self.no_cache = no_cache
-        self.final_query = self._prepare_query()
         self.cache_file_path = self._get_cache_path()
 
     def run(self):
         """Orchestrates the query execution, caching, and viewing."""
         if not self.no_cache and self.cache_file_path.exists():
-            click.echo(f"[Using cached result] Opening: {self.cache_file_path}", err=True)
+            click.echo(
+                f"[Using cached result] Opening: {self.cache_file_path}", err=True
+            )
             self._launch_visidata(self.cache_file_path)
             return
 
-        click.echo(f"Executing query: {self.final_query}", err=True)
+        click.echo(f"Executing query on path: {self.path}", err=True)
         try:
             result_table = self._execute_query()
             self._write_to_cache(result_table)
-            click.echo(f"Query successful. Result cached: {self.cache_file_path}", err=True)
+            click.echo(
+                f"Query successful. Result cached: {self.cache_file_path}", err=True
+            )
             self._launch_visidata(self.cache_file_path)
-        except duckdb.Error as e:
-            click.secho(f"DuckDB Error: {e}", fg="red", err=True)
-            raise click.Abort()
         except Exception as e:
             click.secho(f"An unexpected error occurred: {e}", fg="red", err=True)
             raise click.Abort()
 
-    def _prepare_query(self) -> str:
-        """Determines the final SQL query string."""
-        if is_query(self.query_or_path):
-            return self.query_or_path
-        return f"SELECT * FROM '{self.query_or_path}';"
-
     def _get_cache_path(self) -> Path:
-        """Generates the deterministic cache file path from the query hash."""
-        query_hash = hashlib.sha256(self.final_query.encode()).hexdigest()
+        """Generates the deterministic cache file path from the path and query hash."""
+        unique_string = f"{self.path}::{self.query}"
+        query_hash = hashlib.sha256(unique_string.encode()).hexdigest()
         return CACHE_DIR / f"{query_hash}.parquet"
 
     def _execute_query(self) -> pa.Table:
-        """Connects to DuckDB, sets up backends, and runs the query."""
+        """Connects to DataFusion, registers the table, and runs the query."""
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        con = duckdb.connect(database=':memory:', read_only=False)
+        ctx = SessionContext()
 
-        uri = find_uri_in_string(self.query_or_path)
-        if uri:
-            if uri.startswith('gs://'):
-                if not gcsfs_available:
-                    click.secho("Error: gs:// path detected, but 'gcsfs' is not installed.", fg="red", err=True)
-                    click.echo("Please run: uv pip install gcsfs", err=True)
-                    raise click.Abort()
-                
-                click.echo("gs:// path detected. Registering gcsfs filesystem...", err=True)
-                gcs = GCSFileSystem()
-                con.register_filesystem(gcs)
+        if self.path.startswith("gs://"):
+            bucket_name = get_bucket_name(self.path)
+            print(f"{bucket_name = }")
+            gcs = GoogleCloud(bucket_name=bucket_name)
+            ctx.register_object_store("gs://", gcs)
+
+        final_format = self.file_format
+        if not final_format:
+            if self.path.endswith((".parquet", ".csv", ".json")):
+                final_format = Path(self.path).suffix[1:]
             else:
-                click.echo("Remote path detected. Loading httpfs extension...", err=True)
-                _ = con.execute("INSTALL httpfs;")
-                _ = con.execute("LOAD httpfs;")
-        
-        return con.execute(self.final_query).fetch_arrow_table()
+                raise click.UsageError(
+                    "The --file-format option is required for folder paths."
+                )
+
+        table_name = "mytable"
+        if final_format == "parquet":
+            print(f"{table_name = }")
+            print(self.path)
+            ctx.register_parquet(table_name, self.path)
+        elif final_format == "csv":
+            ctx.register_csv(table_name, self.path)
+        elif final_format == "json":
+            ctx.register_json(table_name, self.path)
+        else:
+            raise click.BadParameter(
+                f"Unsupported format: {final_format}", param_hint="--file-format"
+            )
+
+        print(f"{self.query = }")
+        result = ctx.sql(self.query)
+        return result.to_arrow_table()
 
     def _write_to_cache(self, result_table: pa.Table):
         """Writes a PyArrow Table to the cache file."""
@@ -94,6 +114,7 @@ class DuckVdRunner:
     def _launch_visidata(self, path: Path):
         """Replaces the current process with VisiData."""
         os.execvp("vd", ["vd", str(path)])
+
 
 def clear_cache(ctx: click.Context, _param: click.Parameter, value: Any):
     """Callback to clear the cache and exit."""
@@ -107,50 +128,51 @@ def clear_cache(ctx: click.Context, _param: click.Parameter, value: Any):
         click.echo("Cache directory does not exist, nothing to do.")
     ctx.exit()
 
-def find_uri_in_string(s: str) -> str | None:
-    """Finds the first URI (gs://, s3://, http://, etc.) in a string."""
-    match = re.search(r"['\"]?((?:gs|s3|https?)://[^'\"]+)['\"]?", s)
-    if match:
-        return match.group(1)
-    return None
-
-def is_query(input_string: str) -> bool:
-    """Heuristic to determine if the input is a SQL query."""
-    input_upper = input_string.upper()
-    return any(
-        keyword in input_upper
-        for keyword in ("SELECT ", "FROM ", "WITH ", "VALUES ")
-    )
 
 @click.command()
-@click.argument("query_or_path", type=str, required=False)
-@click.option('--no-cache', is_flag=True, help='Bypass the cache for a fresh query result.')
+@click.argument("path", type=str)
 @click.option(
-    '--clear-cache',
+    "-q",
+    "--query",
+    default="SELECT * FROM mytable",
+    help="The SQL query to execute. Use 'mytable' as the placeholder for the data source.",
+)
+@click.option(
+    "-f",
+    "--file-format",
+    type=click.Choice(["parquet", "csv", "json"]),
+    help="The file format for folder paths.",
+)
+@click.option(
+    "--no-cache", is_flag=True, help="Bypass the cache for a fresh query result."
+)
+@click.option(
+    "--clear-cache",
     is_flag=True,
     callback=clear_cache,
     expose_value=False,
     is_eager=True,
-    help='Clear the entire query result cache and exit.',
+    help="Clear the entire query result cache and exit.",
 )
-def cli(query_or_path: str | None, no_cache: bool):
+def cli(path: str, query: str, file_format: Optional[str], no_cache: bool):
     """
-    A CLI tool to query data with DuckDB and view it in VisiData.
-    """
-    if not query_or_path:
-        click.echo("Error: Missing argument 'QUERY_OR_PATH'.", err=True)
-        click.echo("Run with --help for usage information.", err=True)
-        sys.exit(1)
+    A CLI tool to query data with DataFusion and view it in VisiData.
 
+    PATH: The path to your data (local file, GCS folder, etc.).
+    """
     try:
         _ = subprocess.run(["which", "vd"], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         click.secho("Error: VisiData (vd) not found in your PATH.", fg="red", err=True)
-        click.echo("Please install it to use this tool: https://www.visidata.org/install/", err=True)
+        click.echo(
+            "Please install it to use this tool: https://www.visidata.org/install/",
+            err=True,
+        )
         raise click.Abort()
 
-    runner = DuckVdRunner(query_or_path, no_cache)
+    runner = DataFusionRunner(path, query, file_format, no_cache)
     runner.run()
+
 
 if __name__ == "__main__":
     cli()
