@@ -11,15 +11,37 @@ A simple CLI tool to query local or remote data files (e.g., Parquet, CSV) with 
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+This tool requires Python 3.8+ and a few command-line tools.
 
-1.  **Python 3.8+**
-2.  **uv**: The project's package manager. [Installation instructions](https://github.com/astral-sh/uv).
-3.  **VisiData**: The interactive data viewer. [Installation instructions](https://www.visidata.org/install/).
-4.  **(Optional) Google Cloud SDK**: To access files in GCS, you need the `gcloud` CLI installed and authenticated.
-    ```bash
-    gcloud auth application-default login
-    ```
+### macOS Setup Guide
+
+This guide will walk you through setting up all the necessary dependencies on a Mac.
+
+**Step 1: Install Homebrew**
+
+Homebrew is a package manager for macOS that makes it easy to install software. If you don't already have it, open the `Terminal` app and paste in the following command:
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+Follow the on-screen instructions. For more details, see the [official Homebrew website](https://brew.sh/).
+
+**Step 2: Install Tools with Homebrew**
+
+Once Homebrew is installed, you can install `visidata`, `uv`, and the `google-cloud-sdk` with a single command.
+```bash
+brew install visidata uv google-cloud-sdk
+```
+
+**Step 3: Log in to Google Cloud**
+
+To access files stored in Google Cloud Storage (`gs://`), you need to log in with your Google account. Run the following command and follow the instructions in your web browser:
+```bash
+gcloud auth application-default login
+```
+
+You are now ready to proceed with the installation of `duck_vd`.
+
+---
 
 ## Installation
 
