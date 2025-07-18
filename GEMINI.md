@@ -11,9 +11,13 @@ To create a Python CLI tool named `duck_vd` that allows users to run SQL queries
 - **Tool Type:** A single, integrated CLI tool written in Python.
 - **Query Engine:** The tool uses the `duckdb` Python library.
 - **Cloud Access Strategy:** The tool uses a conditional backend approach:
-    - For Google Cloud Storage (`gs://` URIs), it uses `gcsfs` to leverage the user's existing `gcloud` credentials seamlessly. This is handled by registering `gcsfs` with the DuckDB connection.
+    - For Google Cloud Storage (`gs://` URIs), it uses `gcsfs` to leverage the user's existing `gcloud` credentials seamlessly.
     - For other remote URLs (`https://`, `s3://`, etc.), it uses DuckDB's built-in `httpfs` extension.
-- **Viewer Hand-off:** The tool launches `visidata` on a temporary Parquet file using `os.execvp`. This preserves data types and has been validated by the user.
+- **Caching:**
+    - Caching is implemented in `~/.cache/duck_vd/`.
+    - The SQL query string is hashed (SHA256) to serve as the cache key (filename).
+    - Cache can be bypassed with `--no-cache` and cleared with `--clear-cache`.
+- **Viewer Hand-off:** The tool launches `visidata` on the resulting Parquet file (from cache or a new query) using `os.execvp`.
 
 ## 3. Project Structure
 
@@ -25,9 +29,10 @@ To create a Python CLI tool named `duck_vd` that allows users to run SQL queries
 - **Linting & Formatting:** `ruff`
 - **LSP:** `ty` (from Astral)
 - **CLI Framework:** `click`
-- **Cloud Dependencies:** `gcsfs`, `fsspec`
+- **Cloud Dependencies:** `gcsfs`
 
 ## 5. Project Status
 
-- **Phase 1 (MVP):** Complete. The tool can execute queries on local files, HTTPS URLs, and GCS paths, opening the results in VisiData. GCS authentication is working via `gcloud`.
-- **Next:** Phase 2 (Caching).
+- **Phase 1 (MVP):** Complete.
+- **Phase 2 (Caching):** Complete.
+- **Next:** User feedback and potential feature enhancements.

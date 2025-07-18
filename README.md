@@ -5,8 +5,9 @@ A simple CLI tool to query local or remote data files (e.g., Parquet, CSV) with 
 ## Features
 
 - **Query Anything:** Run SQL queries on local files or remote objects in cloud storage.
+- **Intelligent Caching:** Automatically caches query results to `~/.cache/duck_vd/`, so subsequent identical queries are instantaneous.
 - **Broad Support:** Natively handles local files, HTTPS URLs, and Google Cloud Storage (`gs://`) buckets.
-- **Seamless Viewing:** Opens query results directly in VisiData, preserving data types by using the Parquet format for data transfer.
+- **Seamless Viewing:** Opens query results directly in VisiData, preserving data types by using the Parquet format.
 - **Glob Support:** Query multiple files at once using glob patterns (e.g., `gs://my-bucket/data/*.parquet`).
 
 ## Prerequisites
@@ -75,24 +76,28 @@ The tool accepts a single argument: a path to a file, a URL, or a full SQL query
 duck_vd data/my_file.csv
 ```
 
-**2. Query a remote Parquet file over HTTPS:**
+**2. Query a remote Parquet file (the result will be cached):**
 ```bash
 duck_vd 'https://duckdb.org/data/holdings.parquet'
 ```
 
-**3. Query a single file on Google Cloud Storage:**
-```bash
-duck_vd 'gs://my-gcs-bucket/path/to/file.parquet'
-```
-
-**4. Run a SQL query on a glob of files in GCS:**
-```bash
-duck_vd "SELECT * FROM 'gs://my-bucket/data/2023-*.parquet' WHERE city = 'Madrid';"
-```
-
-**5. Run an aggregate query and view the result:**
+**3. Run a complex query on GCS (the result will be cached):**
 ```bash
 duck_vd "SELECT country, COUNT(*) AS num_records FROM 'gs://my-bucket/data/*.parquet' GROUP BY country ORDER BY num_records DESC;"
+```
+
+### Cache Management
+
+**Force a refresh (bypass the cache):**
+Use the `--no-cache` flag to re-run a query without reading from the cache.
+```bash
+duck_vd --no-cache 'gs://my-gcs-bucket/path/to/file.parquet'
+```
+
+**Clear the entire cache:**
+This will delete all stored query results.
+```bash
+duck_vd --clear-cache
 ```
 
 ## How It Works
@@ -103,4 +108,4 @@ duck_vd "SELECT country, COUNT(*) AS num_records FROM 'gs://my-bucket/data/*.par
 -   **`https://`, `s3://`, etc.:** It uses DuckDB's powerful built-in `httpfs` extension for optimized access.
 -   **Local Files:** It reads directly from your local filesystem.
 
-In all cases, it runs the query and saves the result to a temporary Parquet file, which is then passed to VisiData. This ensures that data types (like dates, numbers, etc.) are correctly preserved.
+For any query, it generates a unique hash of the SQL command. If a file with this hash exists in `~/.cache/duck_vd/`, it is opened instantly. Otherwise, the query is executed, and the result is saved to the cache for future use.
