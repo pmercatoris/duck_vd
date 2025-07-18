@@ -1,20 +1,27 @@
 import os
+import re
 import subprocess
 import tempfile
-from pathlib import Path
-from urllib.parse import urlparse
 
 import click
 import duckdb
 
+# It's good practice to only import gcsfs if it's actually needed
+try:
+    from gcsfs import GCSFileSystem
 
-def is_url(path: str) -> bool:
-    """Check if a given path is a URL."""
-    try:
-        result = urlparse(path)
-        return all([result.scheme, result.netloc])
-    except ValueError:
-        return False
+    GCSFS_AVAILABLE = True
+except ImportError:
+    GCSFS_AVAILABLE = False
+
+
+def find_uri_in_string(s: str) -> str | None:
+    """Finds the first URI (gs://, s3://, http://, etc.) in a string."""
+    # Regex to find a URI, whether it's quoted or not
+    match = re.search(r"['\"]?((?:gs|s3|https?)://[^'\"]+)['\"]?", s)
+    if match:
+        return match.group(1)
+    return None
 
 
 def is_query(input_string: str) -> bool:
@@ -34,64 +41,76 @@ def cli(query_or_path: str):
     """
     A CLI tool to query data with DuckDB and view it in VisiData.
 
-    Takes a SQL QUERY or a file PATH as input.
+    Takes a SQL QUERY or a file PATH (local, gs://, https://, etc.) as input.
     """
     # Ensure VisiData is installed
     try:
         subprocess.run(["which", "vd"], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        click.secho(
-            "Error: VisiData (vd) not found in your PATH.",
-            fg="red",
-        )
+        click.secho("Error: VisiData (vd) not found in your PATH.", fg="red", err=True)
         click.echo(
-            "Please install it to use this tool: https://www.visidata.org/install/"
+            "Please install it to use this tool: https://www.visidata.org/install/",
+            err=True,
         )
         raise click.Abort()
 
-    final_query = ""
-    if is_query(query_or_path):
-        final_query = query_or_path
-    elif is_url(query_or_path):
-        final_query = f"SELECT * FROM '{query_or_path}';"
-    else:
-        # It's a path, wrap it in a SELECT statement
-        path = Path(query_or_path).as_posix()
-        final_query = f"SELECT * FROM '{path}';"
+    final_query = (
+        query_or_path
+        if is_query(query_or_path)
+        else f"SELECT * FROM '{query_or_path}';"
+    )
 
-    click.echo(f"Executing query: {final_query}")
+    click.echo(f"Executing query: {final_query}", err=True)
 
     try:
-        # Connect to an in-memory DuckDB database
         con = duckdb.connect(database=":memory:", read_only=False)
 
-        # Install and load httpfs extension for URL access
-        con.execute("INSTALL httpfs;")
-        con.execute("LOAD httpfs;")
+        # --- Conditional Backend Setup ---
+        uri = find_uri_in_string(query_or_path)
+        if uri:
+            if uri.startswith("gs://"):
+                if not GCSFS_AVAILABLE:
+                    click.secho(
+                        "Error: gs:// path detected, but 'gcsfs' is not installed.",
+                        fg="red",
+                        err=True,
+                    )
+                    click.echo("Please run: uv pip install gcsfs", err=True)
+                    raise click.Abort()
 
-        # Execute the query and fetch the result as an Arrow table
+                click.echo(
+                    "gs:// path detected. Registering gcsfs filesystem...", err=True
+                )
+                gcs = GCSFileSystem()
+                con.register_filesystem(gcs)
+            else:
+                # For https, s3, etc., use the built-in httpfs extension
+                click.echo(
+                    "Remote path detected. Loading httpfs extension...", err=True
+                )
+                con.execute("INSTALL httpfs;")
+                con.execute("LOAD httpfs;")
+
         result = con.execute(final_query).fetch_arrow_table()
 
-        # Create a temporary file to store the Parquet output
         with tempfile.NamedTemporaryFile(
             mode="wb", delete=False, suffix=".parquet"
         ) as tmp_file:
             tmp_file_path = tmp_file.name
-            # Use pyarrow to write the result to a Parquet file
             import pyarrow.parquet as pq
 
             pq.write_table(result, tmp_file_path)
 
-        click.echo(f"Query successful. Opening result in VisiData: {tmp_file_path}")
-
-        # Use os.execvp to replace the current process with VisiData
+        click.echo(
+            f"Query successful. Opening result in VisiData: {tmp_file_path}", err=True
+        )
         os.execvp("vd", ["vd", tmp_file_path])
 
     except duckdb.Error as e:
-        click.secho(f"DuckDB Error: {e}", fg="red")
+        click.secho(f"DuckDB Error: {e}", fg="red", err=True)
         raise click.Abort()
     except Exception as e:
-        click.secho(f"An unexpected error occurred: {e}", fg="red")
+        click.secho(f"An unexpected error occurred: {e}", fg="red", err=True)
         raise click.Abort()
 
 

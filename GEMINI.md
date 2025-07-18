@@ -9,13 +9,11 @@ To create a Python CLI tool named `duck_vd` that allows users to run SQL queries
 ## 2. Core Architecture
 
 - **Tool Type:** A single, integrated CLI tool written in Python.
-- **Query Engine:** The tool will use the `duckdb` Python library.
-- **Cloud Access:** It will leverage DuckDB's native cloud provider support (e.g., the `httpfs` extension for GCS/S3) to execute high-performance queries with projection and predicate pushdown.
-- **Caching:**
-    - A caching mechanism will be implemented to improve performance for repeated queries.
-    - The SQL query string will be hashed to serve as a cache key.
-    - Query results will be stored as **Parquet files** in a local cache directory.
-- **Viewer Hand-off:** The tool launches `visidata` on a temporary Parquet file using `os.execvp`. This approach has been validated by the user and works correctly.
+- **Query Engine:** The tool uses the `duckdb` Python library.
+- **Cloud Access Strategy:** The tool uses a conditional backend approach:
+    - For Google Cloud Storage (`gs://` URIs), it uses `gcsfs` to leverage the user's existing `gcloud` credentials seamlessly. This is handled by registering `gcsfs` with the DuckDB connection.
+    - For other remote URLs (`https://`, `s3://`, etc.), it uses DuckDB's built-in `httpfs` extension.
+- **Viewer Hand-off:** The tool launches `visidata` on a temporary Parquet file using `os.execvp`. This preserves data types and has been validated by the user.
 
 ## 3. Project Structure
 
@@ -27,8 +25,9 @@ To create a Python CLI tool named `duck_vd` that allows users to run SQL queries
 - **Linting & Formatting:** `ruff`
 - **LSP:** `ty` (from Astral)
 - **CLI Framework:** `click`
+- **Cloud Dependencies:** `gcsfs`, `fsspec`
 
 ## 5. Project Status
 
-- **Phase 1 (MVP):** Complete. The tool can execute queries/paths and open the results in VisiData via a temporary Parquet file.
+- **Phase 1 (MVP):** Complete. The tool can execute queries on local files, HTTPS URLs, and GCS paths, opening the results in VisiData. GCS authentication is working via `gcloud`.
 - **Next:** Phase 2 (Caching).
