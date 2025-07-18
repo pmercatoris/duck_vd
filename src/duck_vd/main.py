@@ -76,7 +76,6 @@ class DataFusionRunner:
 
         if self.path.startswith("gs://"):
             bucket_name = get_bucket_name(self.path)
-            print(f"{bucket_name = }")
             gcs = GoogleCloud(bucket_name=bucket_name)
             ctx.register_object_store("gs://", gcs)
 
@@ -91,8 +90,6 @@ class DataFusionRunner:
 
         table_name = "mytable"
         if final_format == "parquet":
-            print(f"{table_name = }")
-            print(self.path)
             ctx.register_parquet(table_name, self.path)
         elif final_format == "csv":
             ctx.register_csv(table_name, self.path)
@@ -103,7 +100,6 @@ class DataFusionRunner:
                 f"Unsupported format: {final_format}", param_hint="--file-format"
             )
 
-        print(f"{self.query = }")
         result = ctx.sql(self.query)
         return result.to_arrow_table()
 
