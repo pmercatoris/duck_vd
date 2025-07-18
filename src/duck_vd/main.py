@@ -22,6 +22,10 @@ CACHE_DIR = Path.home() / ".cache" / "duck_vd"
 
 class DuckVdRunner:
     """Encapsulates the logic for running a duck_vd query."""
+    query_or_path: str
+    no_cache: bool
+    final_query: str
+    cache_file_path: Path
 
     def __init__(self, query_or_path: str, no_cache: bool):
         self.query_or_path = query_or_path

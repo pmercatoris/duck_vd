@@ -1,6 +1,5 @@
-import os
-import subprocess
 from pathlib import Path
+from pytest_mock import MockerFixture
 
 import pytest
 from click.testing import CliRunner
@@ -12,12 +11,12 @@ from duck_vd.main import cli, DuckVdRunner, CACHE_DIR
 DUMMY_CSV_CONTENT = "id,name\n1,a\n2,b"
 
 @pytest.fixture
-def runner():
+def runner() -> CliRunner:
     """Fixture for invoking command-line interfaces."""
     return CliRunner()
 
 @pytest.fixture
-def mock_db(mocker):
+def mock_db(mocker: MockerFixture):
     """Fixture to mock all DuckDB interactions."""
     # Create a realistic, empty pyarrow Table to be the return value
     dummy_table = pa.Table.from_pydict({})
@@ -28,13 +27,13 @@ def mock_db(mocker):
     return mock_con
 
 @pytest.fixture
-def mock_exec(mocker):
+def mock_exec(mocker: MockerFixture):
     """Fixture to mock os.execvp to prevent VisiData from launching."""
     return mocker.patch('os.execvp')
 
 # --- Test Cases ---
 
-def test_local_file_execution(tmp_path, mock_db, mock_exec):
+def test_local_file_execution(tmp_path: Path, mock_db, mock_exec):
     """
     Tests the core logic of running a query on a local file.
     """
@@ -57,7 +56,7 @@ def test_local_file_execution(tmp_path, mock_db, mock_exec):
     assert cached_file.parent == CACHE_DIR
     assert cached_file.exists()
 
-def test_gcs_backend_is_selected(mocker, mock_db, mock_exec):
+def test_gcs_backend_is_selected(mocker: MockerFixture, mock_db, mock_exec):
     """
     Verifies that the gcsfs backend is registered for gs:// URIs.
     """
@@ -83,12 +82,13 @@ def test_https_backend_is_selected(mock_db, mock_exec):
     mock_db.register_filesystem.assert_not_called()
     assert any("INSTALL httpfs" in call[0][0] for call in mock_db.execute.call_args_list)
 
-def test_cache_hit_skips_query(mocker, mock_exec):
+def test_cache_hit_skips_query(mocker: MockerFixture, mock_exec):
     """
     Confirms that an existing cache file prevents a new query from running.
     """
     # 1. Mock the query execution method to spy on it
-    mock_execute_query = mocker.patch.object(DuckVdRunner, '_execute_query')
+    dummy_table = pa.Table.from_pydict({})
+    mock_execute_query = mocker.patch.object(DuckVdRunner, '_execute_query', return_value=dummy_table)
 
     # 2. Create a dummy cache file
     query = "SELECT * FROM 'some_table'"
@@ -104,7 +104,7 @@ def test_cache_hit_skips_query(mocker, mock_exec):
     mock_execute_query.assert_not_called()
     mock_exec.assert_called_once_with("vd", ["vd", str(cache_file)])
 
-def test_no_cache_forces_query(mocker, mock_exec):
+def test_no_cache_forces_query(mocker: MockerFixture, mock_exec):
     """
     Ensures the --no-cache flag forces a query even if a cache file exists.
     """
@@ -125,7 +125,7 @@ def test_no_cache_forces_query(mocker, mock_exec):
     # 4. Assert that the query WAS executed
     mock_execute_query.assert_called_once()
 
-def test_clear_cache_command(runner):
+def test_clear_cache_command(runner: CliRunner):
     """
     Verifies that the --clear-cache command removes the cache directory.
     """
