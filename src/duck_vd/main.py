@@ -3,9 +3,7 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Optional
 
 import click
 import pyarrow as pa
@@ -29,13 +27,11 @@ class DataFusionRunner:
 
     path: str
     query: str
-    file_format: Optional[str]
+    file_format: str | None
     no_cache: bool
     cache_file_path: Path
 
-    def __init__(
-        self, path: str, query: str, file_format: Optional[str], no_cache: bool
-    ):
+    def __init__(self, path: str, query: str, file_format: str | None, no_cache: bool):
         self.path = path
         self.query = query
         self.file_format = file_format
@@ -112,7 +108,7 @@ class DataFusionRunner:
         os.execvp("vd", ["vd", str(path)])
 
 
-def clear_cache(ctx: click.Context, _param: click.Parameter, value: Any):
+def clear_cache(ctx: click.Context, _param: click.Parameter, value: bool):
     """Callback to clear the cache and exit."""
     if not value or ctx.resilient_parsing:
         return
@@ -150,7 +146,7 @@ def clear_cache(ctx: click.Context, _param: click.Parameter, value: Any):
     is_eager=True,
     help="Clear the entire query result cache and exit.",
 )
-def cli(path: str, query: str, file_format: Optional[str], no_cache: bool):
+def cli(path: str, query: str, file_format: str | None, no_cache: bool):
     """
     A CLI tool to query data with DataFusion and view it in VisiData.
 

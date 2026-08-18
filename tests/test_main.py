@@ -1,4 +1,3 @@
-from pathlib import Path
 from pytest_mock import MockerFixture
 
 import pytest
@@ -7,29 +6,19 @@ import pyarrow as pa
 
 from duck_vd.main import cli, DataFusionRunner, CACHE_DIR
 
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
 
-@pytest.fixture
-def mock_df_context(mocker: MockerFixture):
-    """Fixture to mock the DataFusion SessionContext and its registration methods."""
-    mock_ctx = mocker.MagicMock()
-    mock_ctx.sql.return_value.to_arrow_table.return_value = pa.Table.from_pydict({})
-    
-    mocker.patch('datafusion.SessionContext', return_value=mock_ctx)
-    mocker.patch('duck_vd.main.GoogleCloud')
-    return mock_ctx
-
-# --- Test Cases ---
 
 def test_table_registration_logic(mocker: MockerFixture):
     """
     Verifies that the correct DataFusion registration method is called based on format.
     """
-    mock_ctx = mocker.patch('datafusion.SessionContext').return_value
+    mock_ctx = mocker.patch("duck_vd.main.SessionContext").return_value
     mock_ctx.sql.return_value.to_arrow_table.return_value = pa.Table.from_pydict({})
-    
+
     # Test Parquet
     runner_parquet = DataFusionRunner("data.parquet", "SELECT *", None, True)
     runner_parquet._execute_query()
@@ -45,16 +34,18 @@ def test_table_registration_logic(mocker: MockerFixture):
     runner_json._execute_query()
     mock_ctx.register_json.assert_called_with("mytable", "data.json")
 
+
 def test_cache_key_is_unique():
     """
     Ensures that the cache key is different for the same query on different paths.
     """
     query = "SELECT * FROM mytable"
-    
+
     runner1 = DataFusionRunner("path/one", query, "parquet", False)
     runner2 = DataFusionRunner("path/two", query, "parquet", False)
-    
+
     assert runner1.cache_file_path != runner2.cache_file_path
+
 
 def test_clear_cache_command(runner: CliRunner):
     """
@@ -64,7 +55,7 @@ def test_clear_cache_command(runner: CliRunner):
     (CACHE_DIR / "dummy_file").touch()
     assert CACHE_DIR.exists()
 
-    result = runner.invoke(cli, ['--clear-cache'])
+    result = runner.invoke(cli, ["--clear-cache"])
 
     assert result.exit_code == 0
     assert "Cache cleared" in result.output

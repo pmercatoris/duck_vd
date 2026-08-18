@@ -12,7 +12,8 @@ A simple CLI tool to query local or remote data files (e.g., Parquet, CSV, JSON)
 
 ## Prerequisites
 
-This tool requires Python 3.8+ and a few command-line tools.
+This tool requires Python 3.13+, VisiData, and `uv`. Google Cloud SDK is also
+required when querying data in Google Cloud Storage.
 
 ### macOS Setup Guide
 
@@ -76,7 +77,7 @@ duck_vd [OPTIONS] PATH
 ### Arguments & Options
 
 -   `PATH`: (Required) The path to your data source. Can be a local file, a GCS path (`gs://...`), or a folder.
--   `-q`, `--query`: The SQL query to execute. Use the special name `table` to refer to the data source. Defaults to `"SELECT * FROM table"`.
+-   `-q`, `--query`: The SQL query to execute. Use `mytable` to refer to the registered data source. Defaults to `"SELECT * FROM mytable"`.
 -   `-f`, `--file-format`: The format of the data (`parquet`, `csv`, `json`). **Required** when `PATH` is a folder.
 -   `--no-cache`: Bypass the cache for a fresh query result.
 -   `--clear-cache`: Clear the entire query result cache and exit.
@@ -95,7 +96,7 @@ duck_vd gs://my-bucket/data/ --file-format parquet
 
 **3. Run a custom aggregate query on a folder of JSON files:**
 ```bash
-duck_vd gs://my-bucket/logs/ --file-format json --query "SELECT level, COUNT(*) FROM table GROUP BY 1"
+duck_vd gs://my-bucket/logs/ --file-format json --query "SELECT level, COUNT(*) FROM mytable GROUP BY 1"
 ```
 
 ### Cache Management
@@ -112,6 +113,18 @@ duck_vd --clear-cache
 
 ## How It Works
 
-`duck_vd` uses Apache DataFusion to register your data source (whether local or on GCS) as a table named `table`. It then executes your SQL query against this table. DataFusion's native `object_store` support handles GCS authentication and performs optimized reads (predicate/projection pushdown) to only download the data it needs.
+`duck_vd` uses Apache DataFusion to register your data source (whether local or on GCS) as a table named `mytable`. It then executes your SQL query against this table. DataFusion's native `object_store` support handles GCS authentication and performs optimized reads (predicate/projection pushdown) to only download the data it needs.
 
 For caching, it generates a unique hash from the combination of the data path and the SQL query. If a file with this hash exists in `~/.cache/duck_vd/`, it is opened instantly. Otherwise, the query is executed, and the result is saved to the cache for future use.
+
+## Development
+
+Run the checks in the project environment with `uv`:
+
+```bash
+uv run --python 3.13 pytest
+uv run --python 3.13 ruff check .
+uv run --python 3.13 ruff format --check .
+uv run --python 3.13 ty check
+uv run --python 3.13 basedpyright --level error
+```
